@@ -44,7 +44,10 @@ app.get('/api/health', (req, res) => {
 
 // Mount Routes
 const transactionRoutes = require('./routes/transactionRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
+
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // 404 Not Found Handler
 app.use((req, res, next) => {

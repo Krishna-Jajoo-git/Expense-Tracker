@@ -1,0 +1,13 @@
+{
+  "name": "expense-tracker-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monorepo for Expense Tracker & Budget Dashboard",
+  "scripts": {
+    "start": "npm --prefix server start",
+    "server": "npm --prefix server run dev",
+    "server:start": "npm --prefix server start",
+    "client": "npm --prefix client run dev",
+    "client:build": "npm --prefix client run build"
+  }
+}
