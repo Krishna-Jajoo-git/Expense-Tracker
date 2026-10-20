@@ -1,98 +1,173 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import KPICards from './components/KPICards';
+import CategoryChart from './components/CategoryChart';
+import MonthlyTrendChart from './components/MonthlyTrendChart';
 import TransactionForm from './components/TransactionForm';
 import TransactionList from './components/TransactionList';
+import {
+  getTransactions,
+  createTransaction,
+  deleteTransaction,
+  getSummary,
+  getCategoryBreakdown,
+  getMonthlyTrend
+} from './services/api';
+import { RefreshCw, AlertTriangle } from 'lucide-react';
 
 export default function App() {
-  // Initial local state for Task 3 layout shell demonstration
-  const [transactions, setTransactions] = useState([
-    {
-      _id: 'sample-1',
-      title: 'Monthly Salary',
-      amount: 4500,
-      category: 'Salary',
-      type: 'income',
-      date: '2026-10-01T00:00:00.000Z'
-    },
-    {
-      _id: 'sample-2',
-      title: 'Apartment Rent',
-      amount: 1200,
-      category: 'Rent',
-      type: 'expense',
-      date: '2026-10-02T00:00:00.000Z'
-    },
-    {
-      _id: 'sample-3',
-      title: 'Supermarket Groceries',
-      amount: 250,
-      category: 'Food',
-      type: 'expense',
-      date: '2026-10-05T00:00:00.000Z'
-    },
-    {
-      _id: 'sample-4',
-      title: 'High-speed Fiber Internet',
-      amount: 75,
-      category: 'Utilities',
-      type: 'expense',
-      date: '2026-10-08T00:00:00.000Z'
+  const [transactions, setTransactions] = useState([]);
+  const [summary, setSummary] = useState({
+    totalIncome: 0,
+    totalExpense: 0,
+    netBalance: 0,
+    transactionCount: 0
+  });
+  const [categoryBreakdown, setCategoryBreakdown] = useState([]);
+  const [monthlyTrend, setMonthlyTrend] = useState([]);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  // Fetch all dashboard data from the backend
+  const loadDashboardData = useCallback(async () => {
+    setErrorMessage('');
+    try {
+      const [txRes, sumRes, catRes, trendRes] = await Promise.all([
+        getTransactions(),
+        getSummary(),
+        getCategoryBreakdown('expense'),
+        getMonthlyTrend()
+      ]);
+
+      if (txRes?.data) setTransactions(txRes.data);
+      if (sumRes?.data) setSummary(sumRes.data);
+      if (catRes?.data) setCategoryBreakdown(catRes.data);
+      if (trendRes?.data) setMonthlyTrend(trendRes.data);
+    } catch (err) {
+      console.error('Failed to load dashboard data:', err);
+      setErrorMessage(
+        err.message || 'Unable to connect to backend server. Ensure backend is running on port 5000.'
+      );
+    } finally {
+      setIsLoading(false);
     }
-  ]);
+  }, []);
 
-  // Derived KPI calculations for the shell
-  const totalIncome = transactions
-    .filter((t) => t.type === 'income')
-    .reduce((sum, t) => sum + t.amount, 0);
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
 
-  const totalExpense = transactions
-    .filter((t) => t.type === 'expense')
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const summary = {
-    totalIncome,
-    totalExpense,
-    netBalance: totalIncome - totalExpense
+  // Handle adding a new transaction
+  const handleAddTransaction = async (newTxData) => {
+    setIsSubmitting(true);
+    setErrorMessage('');
+    try {
+      const res = await createTransaction(newTxData);
+      if (res?.data) {
+        // Optimistically update transactions list
+        setTransactions((prev) => [res.data, ...prev]);
+        // Refresh analytics and KPIs to ensure accurate aggregations
+        const [sumRes, catRes, trendRes] = await Promise.all([
+          getSummary(),
+          getCategoryBreakdown('expense'),
+          getMonthlyTrend()
+        ]);
+        if (sumRes?.data) setSummary(sumRes.data);
+        if (catRes?.data) setCategoryBreakdown(catRes.data);
+        if (trendRes?.data) setMonthlyTrend(trendRes.data);
+      }
+    } catch (err) {
+      console.error('Failed to create transaction:', err);
+      setErrorMessage(err.message || 'Failed to create transaction.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleAddTransaction = (newTx) => {
-    const createdItem = {
-      ...newTx,
-      _id: `tx-${Date.now()}`
-    };
-    setTransactions((prev) => [createdItem, ...prev]);
-  };
+  // Handle deleting a transaction with optimistic UI updates
+  const handleDeleteTransaction = async (id) => {
+    // Preserve copy of previous state for rollback on error
+    const previousTransactions = [...transactions];
+    const itemToDelete = transactions.find((t) => t._id === id);
 
-  const handleDeleteTransaction = (id) => {
+    // Optimistically remove from state
     setTransactions((prev) => prev.filter((t) => t._id !== id));
+
+    try {
+      await deleteTransaction(id);
+      // Refresh KPIs and charts after confirmed deletion
+      const [sumRes, catRes, trendRes] = await Promise.all([
+        getSummary(),
+        getCategoryBreakdown('expense'),
+        getMonthlyTrend()
+      ]);
+      if (sumRes?.data) setSummary(sumRes.data);
+      if (catRes?.data) setCategoryBreakdown(catRes.data);
+      if (trendRes?.data) setMonthlyTrend(trendRes.data);
+    } catch (err) {
+      console.error('Failed to delete transaction:', err);
+      setErrorMessage('Failed to delete transaction. Reverting changes.');
+      // Rollback optimistic update
+      setTransactions(previousTransactions);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/60 text-slate-800">
+    <div className="min-h-screen bg-slate-50/60 text-slate-800 pb-16">
       <Navbar />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* Metric KPI Cards */}
+        {/* Error notification banner */}
+        {errorMessage && (
+          <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-between text-sm shadow-sm">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 shrink-0 text-rose-500" />
+              <span>{errorMessage}</span>
+            </div>
+            <button
+              onClick={loadDashboardData}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-800 text-xs font-semibold transition"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Top Metric KPI Cards */}
         <section>
           <KPICards summary={summary} />
         </section>
 
-        {/* Two-Column Responsive Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left Column: Add Transaction Form */}
+        {/* Visual Analytics Charts Section */}
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+          <div className="lg:col-span-7">
+            <MonthlyTrendChart data={monthlyTrend} isLoading={isLoading} />
+          </div>
           <div className="lg:col-span-5">
-            <TransactionForm onSubmit={handleAddTransaction} />
+            <CategoryChart data={categoryBreakdown} isLoading={isLoading} />
+          </div>
+        </section>
+
+        {/* Core Operations: Add Transaction Form & Live Transaction List */}
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className="lg:col-span-5">
+            <TransactionForm
+              onSubmit={handleAddTransaction}
+              isSubmitting={isSubmitting}
+            />
           </div>
 
-          {/* Right Column: Recent Transactions Table */}
           <div className="lg:col-span-7">
             <TransactionList
               transactions={transactions}
               onDelete={handleDeleteTransaction}
+              isLoading={isLoading}
             />
           </div>
-        </div>
+        </section>
       </main>
     </div>
   );
