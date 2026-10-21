@@ -14,9 +14,10 @@ const getTransactions = async (req, res) => {
       filter.type = type.toLowerCase();
     }
 
-    // Filter by category
+    // Filter by category (safely escape regex special characters)
     if (category && category.trim() !== '') {
-      filter.category = { $regex: new RegExp(`^${category.trim()}$`, 'i') };
+      const escapedCategory = category.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.category = { $regex: new RegExp(`^${escapedCategory}$`, 'i') };
     }
 
     // Filter by month (format: YYYY-MM or YYYY-M)
@@ -33,8 +34,13 @@ const getTransactions = async (req, res) => {
       }
     } else if (startDate || endDate) {
       filter.date = {};
-      if (startDate) filter.date.$gte = new Date(startDate);
-      if (endDate) filter.date.$lte = new Date(endDate);
+      if (startDate && !isNaN(new Date(startDate).getTime())) {
+        filter.date.$gte = new Date(startDate);
+      }
+      if (endDate && !isNaN(new Date(endDate).getTime())) {
+        filter.date.$lte = new Date(endDate);
+      }
+      if (Object.keys(filter.date).length === 0) delete filter.date;
     }
 
     const transactions = await Transaction.find(filter).sort({ date: -1, createdAt: -1 });
@@ -59,19 +65,39 @@ const createTransaction = async (req, res) => {
   try {
     const { title, amount, category, type, date } = req.body;
 
-    if (!title || amount === undefined || !type) {
+    if (!title || title.trim() === '' || amount === undefined || !type) {
       return res.status(400).json({
         success: false,
         error: 'Please provide title, amount, and type (income or expense)'
       });
     }
 
+    const parsedAmount = Number(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Amount must be a valid number greater than 0'
+      });
+    }
+
+    let parsedDate = new Date();
+    if (date) {
+      const d = new Date(date);
+      if (isNaN(d.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Please provide a valid transaction date'
+        });
+      }
+      parsedDate = d;
+    }
+
     const transaction = await Transaction.create({
-      title,
-      amount: Number(amount),
-      category: category || 'Other',
+      title: title.trim(),
+      amount: parsedAmount,
+      category: category ? category.trim() : 'Other',
       type: type.toLowerCase(),
-      date: date ? new Date(date) : new Date()
+      date: parsedDate
     });
 
     res.status(201).json({
@@ -120,10 +146,24 @@ const updateTransaction = async (req, res) => {
       req.body.type = req.body.type.toLowerCase();
     }
     if (req.body.amount !== undefined) {
-      req.body.amount = Number(req.body.amount);
+      const parsedAmount = Number(req.body.amount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Amount must be a valid number greater than 0'
+        });
+      }
+      req.body.amount = parsedAmount;
     }
     if (req.body.date) {
-      req.body.date = new Date(req.body.date);
+      const d = new Date(req.body.date);
+      if (isNaN(d.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Please provide a valid transaction date'
+        });
+      }
+      req.body.date = d;
     }
 
     const updated = await Transaction.findByIdAndUpdate(id, req.body, {

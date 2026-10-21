@@ -4,3 +4,8 @@ node_modules/
 dist/
 build/
 *.log
+.venv/
+__pycache__/
+PBL guidelines.pdf
+PBL_PROJECT_DOCUMENTATION.*
+~$*
